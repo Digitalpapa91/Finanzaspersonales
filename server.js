@@ -1,0 +1,241 @@
+// ============================================================
+// SERVER — Finanzas App Express + PostgreSQL
+// ============================================================
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ---- HEALTH CHECK ----
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ---- RESUMEN GENERAL ----
+app.get('/api/resumen', async (req, res) => {
+  try {
+    const { rows: meses } = await pool.query('SELECT * FROM meses ORDER BY id');
+    const { rows: costos } = await pool.query('SELECT * FROM costos_financieros');
+    const { rows: anual } = await pool.query(`
+      SELECT
+        SUBSTRING(id,1,4) AS anio,
+        SUM(gasto_real) AS total,
+        AVG(gasto_real) AS promedio,
+        COUNT(*) AS num_meses,
+        SUM(ingresos_extras) AS ingresos
+      FROM meses
+      GROUP BY anio
+      ORDER BY anio
+    `);
+
+    const costosMap = {};
+    costos.forEach(c => costosMap[c.mes_id] = c);
+
+    const total = meses.reduce((s, m) => s + parseInt(m.gasto_real), 0);
+    const promedio = Math.round(total / meses.length);
+    const max = meses.reduce((a, b) => parseInt(a.gasto_real) > parseInt(b.gasto_real) ? a : b);
+    const min = meses.reduce((a, b) => parseInt(a.gasto_real) < parseInt(b.gasto_real) ? a : b);
+    const totalFinanciero = costos.reduce((s, c) => s + parseInt(c.total), 0);
+    const ultimo = meses[meses.length - 1];
+
+    res.json({
+      total, promedio,
+      max: { label: max.label, valor: parseInt(max.gasto_real) },
+      min: { label: min.label, valor: parseInt(min.gasto_real) },
+      total_financiero: totalFinanciero,
+      ultimo: { label: ultimo.label, valor: parseInt(ultimo.gasto_real), abierto: ultimo.mes_abierto },
+      num_meses: meses.length,
+      por_anio: anual.map(a => ({ anio: a.anio, total: parseInt(a.total), promedio: Math.round(a.promedio), meses: parseInt(a.num_meses) }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- TODOS LOS MESES (para gráficas) ----
+app.get('/api/meses', async (req, res) => {
+  try {
+    const { rows: meses } = await pool.query('SELECT * FROM meses ORDER BY id');
+    const { rows: costos } = await pool.query('SELECT * FROM costos_financieros');
+    const { rows: alertas } = await pool.query('SELECT * FROM alertas_mes ORDER BY mes_id');
+
+    const costosMap = {};
+    costos.forEach(c => costosMap[c.mes_id] = { tc: parseInt(c.tc), lc: parseInt(c.lc), total: parseInt(c.total) });
+
+    const alertasMap = {};
+    alertas.forEach(a => {
+      if (!alertasMap[a.mes_id]) alertasMap[a.mes_id] = [];
+      alertasMap[a.mes_id].push(a.texto);
+    });
+
+    const result = meses.map(m => ({
+      id: m.id,
+      label: m.label,
+      gasto_real: parseInt(m.gasto_real),
+      mes_abierto: m.mes_abierto,
+      ingresos_extras: parseInt(m.ingresos_extras),
+      notas: m.notas,
+      costos_financieros: costosMap[m.id] || { tc: 0, lc: 0, total: 0 },
+      alertas: alertasMap[m.id] || []
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- MES ESPECÍFICO CON DESGLOSE ----
+app.get('/api/meses/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows: mes } = await pool.query('SELECT * FROM meses WHERE id=$1', [id]);
+    if (!mes.length) return res.status(404).json({ error: 'Mes no encontrado' });
+
+    const { rows: desglose } = await pool.query(`
+      SELECT d.categoria_key, d.monto, c.label, c.color
+      FROM desglose d
+      LEFT JOIN categorias c ON d.categoria_key = c.key
+      WHERE d.mes_id = $1
+      ORDER BY d.monto DESC
+    `, [id]);
+
+    const { rows: costos } = await pool.query('SELECT * FROM costos_financieros WHERE mes_id=$1', [id]);
+    const { rows: alertas } = await pool.query('SELECT texto FROM alertas_mes WHERE mes_id=$1', [id]);
+
+    res.json({
+      ...mes[0],
+      gasto_real: parseInt(mes[0].gasto_real),
+      ingresos_extras: parseInt(mes[0].ingresos_extras),
+      desglose: desglose.map(d => ({ ...d, monto: parseInt(d.monto) })),
+      costos_financieros: costos[0] ? { tc: parseInt(costos[0].tc), lc: parseInt(costos[0].lc), total: parseInt(costos[0].total) } : { tc: 0, lc: 0, total: 0 },
+      alertas: alertas.map(a => a.texto)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- CATEGORÍAS ----
+app.get('/api/categorias', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM categorias ORDER BY key');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- ESTADÍSTICAS POR CATEGORÍA ----
+app.get('/api/categorias/stats', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        d.categoria_key,
+        c.label,
+        c.color,
+        SUM(CASE WHEN d.monto > 0 THEN d.monto ELSE 0 END) AS total,
+        AVG(CASE WHEN d.monto > 0 THEN d.monto ELSE NULL END) AS promedio,
+        COUNT(DISTINCT d.mes_id) AS meses_con_gasto
+      FROM desglose d
+      LEFT JOIN categorias c ON d.categoria_key = c.key
+      GROUP BY d.categoria_key, c.label, c.color
+      ORDER BY total DESC
+    `);
+    const numMeses = (await pool.query('SELECT COUNT(*) FROM meses')).rows[0].count;
+    res.json(rows.map(r => ({
+      key: r.categoria_key,
+      label: r.label,
+      color: r.color,
+      total: parseInt(r.total),
+      promedio_mes: Math.round(parseInt(r.total) / parseInt(numMeses)),
+      meses_con_gasto: parseInt(r.meses_con_gasto)
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- CUOTAS ACTIVAS ----
+app.get('/api/cuotas', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM cuotas_activas ORDER BY prioridad DESC, total_pendiente DESC');
+    res.json(rows.map(r => ({ ...r, cuota: parseInt(r.cuota), total_pendiente: parseInt(r.total_pendiente) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- ALERTAS GLOBALES ----
+app.get('/api/alertas', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM alertas_globales ORDER BY id');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- AGREGAR NUEVO MES ----
+app.post('/api/meses', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id, label, gasto_real, mes_abierto, ingresos_extras, notas, desglose, costos_financieros, alertas } = req.body;
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO meses (id, label, gasto_real, mes_abierto, ingresos_extras, notas) VALUES ($1,$2,$3,$4,$5,$6)',
+      [id, label, gasto_real, mes_abierto || false, ingresos_extras || 0, notas || null]
+    );
+    if (costos_financieros) {
+      await client.query(
+        'INSERT INTO costos_financieros (mes_id, tc, lc, total) VALUES ($1,$2,$3,$4)',
+        [id, costos_financieros.tc || 0, costos_financieros.lc || 0, costos_financieros.total || 0]
+      );
+    }
+    if (desglose) {
+      for (const [cat_key, monto] of Object.entries(desglose)) {
+        if (monto !== 0) {
+          await client.query('INSERT INTO desglose (mes_id, categoria_key, monto) VALUES ($1,$2,$3)', [id, cat_key, monto]);
+        }
+      }
+    }
+    if (alertas && alertas.length) {
+      for (const texto of alertas) {
+        await client.query('INSERT INTO alertas_mes (mes_id, texto) VALUES ($1,$2)', [id, texto]);
+      }
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ ok: true, id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ---- CATCH ALL → sirve el HTML ----
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Finanzas App corriendo en http://localhost:${PORT}`);
+});
