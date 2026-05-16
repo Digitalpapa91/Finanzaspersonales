@@ -247,7 +247,11 @@ app.get('/api/transacciones', async (req, res) => {
     `;
     const params = [];
     if (mes_id) { params.push(mes_id); query += ` AND t.mes_id = $${params.length}`; }
-    if (categoria_key) { params.push(categoria_key); query += ` AND t.categoria_key = $${params.length}`; }
+    if (categoria_key === '__sin_categoria__') {
+      query += ` AND t.categoria_key IS NULL`;
+    } else if (categoria_key) {
+      params.push(categoria_key); query += ` AND t.categoria_key = $${params.length}`;
+    }
     query += ' ORDER BY t.fecha DESC, t.id DESC';
     const { rows } = await pool.query(query, params);
     res.json(rows.map(r => ({ ...r, monto: parseInt(r.monto) })));
