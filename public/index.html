@@ -834,15 +834,26 @@ async function cargarTransacciones() {
     return;
   }
 
+  const catOpts = (catsCache || []).filter(c => c.key !== 'sin_categorizar')
+    .map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+
   tbody.innerHTML = txns.map(t => `
-    <tr>
+    <tr id="txrow-${t.id}">
       <td class="mono" style="white-space:nowrap;color:var(--text3)">${t.fecha?.slice(0,10) || '—'}</td>
-      <td style="max-width:240px;color:var(--text)">${t.descripcion}${t.notas ? `<br><span style="font-size:11px;color:var(--text3)">${t.notas}</span>` : ''}</td>
-      <td><span class="cat-dot" style="background:${t.categoria_color || '#94a3b8'}"></span>${t.categoria_label || t.categoria_key}</td>
+      <td style="max-width:220px;color:var(--text);font-size:12px">${t.descripcion}${t.notas ? `<br><span style="font-size:10px;color:var(--text3)">${t.notas}</span>` : ''}</td>
+      <td style="min-width:180px">
+        <select onchange="cambiarCategoria(${t.id}, this.value)"
+          style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border2);font-size:12px;color:var(--text);background:var(--surface);font-family:var(--sans)">
+          <option value="">— Sin categoría —</option>
+          ${catsCache.filter(c => c.key !== 'sin_categorizar').map(c =>
+            `<option value="${c.key}" ${c.key === t.categoria_key ? 'selected' : ''}>${c.label}</option>`
+          ).join('')}
+        </select>
+      </td>
       <td><span class="badge badge-blue">${MEDIOS[t.medio_pago] || t.medio_pago}</span></td>
-      <td class="mono right red">${fmt(t.monto)}</td>
+      <td class="mono right" style="color:${t.es_ingreso ? 'var(--green)' : 'var(--red)'}">${t.es_ingreso ? '+' : ''}${fmt(t.monto)}</td>
       <td class="right">
-        <button onclick="eliminarTransaccion(${t.id})" style="background:var(--red-bg);border:1px solid #fca5a5;color:var(--red);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--sans);font-weight:500">Eliminar</button>
+        <button onclick="eliminarTransaccion(${t.id})" style="background:var(--red-bg);border:1px solid #fca5a5;color:var(--red);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--sans);font-weight:500">✕</button>
       </td>
     </tr>
   `).join('');
@@ -887,6 +898,19 @@ async function guardarTransaccion() {
     msg.style.color = 'var(--red)';
     msg.textContent = '❌ Error: ' + err.message;
   }
+}
+
+async function cambiarCategoria(id, categoria_key) {
+  const row = document.getElementById(`txrow-${id}`);
+  if (row) { row.style.opacity = '0.6'; }
+  await fetch(`/api/transacciones/${id}/categoria`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categoria_key: categoria_key || null })
+  });
+  if (row) { row.style.opacity = '1'; }
+  // Actualizar resumen de categorías
+  await cargarTransacciones();
 }
 
 async function eliminarTransaccion(id) {
