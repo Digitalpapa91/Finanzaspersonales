@@ -262,6 +262,18 @@ select:focus, input:focus {
     <div class="kpi"><div class="kpi-label">Costos fin. acum. 2025</div><div class="kpi-val up">$211k</div><div class="kpi-sub">TC $198k + LC $13k</div></div>
   </div>
   <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Consumo TC del mes</span>
+      <select id="tc-mes-sel" onchange="cargarResumenTC()" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--surface);color:var(--text);font-family:var(--sans)">
+        <option value="">Todos los meses</option>
+      </select>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Tarjeta</th><th class="right">N° movimientos</th><th class="right">Total a pagar</th></tr></thead>
+      <tbody id="tc-resumen-tbody"><tr><td colspan="3"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr></tbody>
+    </table>
+  </div>
+  <div class="card">
     <div class="card-title">Cuotas TC Activas</div>
     <table class="tbl">
       <thead><tr><th>Descripción</th><th class="right">Cuota/mes</th><th class="right">Cuotas restantes</th><th class="right">Total pendiente</th><th>Prioridad</th></tr></thead>
@@ -653,6 +665,52 @@ async function showMonthDetail(mesId, cardEl) {
 
 // ================ DEUDAS ================
 async function initDeudas() {
+  // Poblar selector de meses en el resumen TC
+  const sel = document.getElementById('tc-mes-sel');
+  if (mesesListCache) {
+    sel.innerHTML = '<option value="">Todos los meses</option>' +
+      mesesListCache.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+    // Preseleccionar el mes abierto
+    const abierto = mesesListCache.find(m => m.mes_abierto);
+    if (abierto) sel.value = abierto.id;
+  }
+
+  await Promise.all([cargarResumenTC(), cargarCuotas()]);
+}
+
+async function cargarResumenTC() {
+  const mesId = document.getElementById('tc-mes-sel').value;
+  const url = '/api/resumen-tc' + (mesId ? `?mes_id=${mesId}` : '');
+  const data = await fetch(url).then(r => r.json());
+  const tbody = document.getElementById('tc-resumen-tbody');
+
+  const NOMBRES = {
+    cartola_credito: '💳 TC Nacional',
+    cartola_inter:   '🌐 TC Internacional (USD)'
+  };
+
+  const filas = ['cartola_credito', 'cartola_inter'].map(fuente => {
+    const d = data.find(r => r.fuente === fuente);
+    const total = d ? d.total : 0;
+    const txns  = d ? d.num_transacciones : 0;
+    return `<tr>
+      <td class="bold">${NOMBRES[fuente]}</td>
+      <td class="mono right">${txns} mov.</td>
+      <td class="mono right ${total > 0 ? 'red' : ''}">${total > 0 ? fmt(total) : '—'}</td>
+    </tr>`;
+  });
+
+  const totalGeneral = data.reduce((s, r) => s + r.total, 0);
+  filas.push(`<tr style="border-top:2px solid var(--border)">
+    <td class="bold">Total a pagar</td>
+    <td></td>
+    <td class="mono right bold red">${fmt(totalGeneral)}</td>
+  </tr>`);
+
+  tbody.innerHTML = filas.join('');
+}
+
+async function cargarCuotas() {
   const cuotas = await fetch('/api/cuotas').then(r => r.json());
   const tbody = document.getElementById('cuotas-tbody');
   tbody.innerHTML = cuotas.map(c => {
@@ -664,7 +722,7 @@ async function initDeudas() {
       <td class="mono right red">${fmt(c.total_pendiente)}</td>
       <td><span class="badge ${cls}">${c.prioridad}</span></td>
     </tr>`;
-  }).join('');
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin cuotas activas registradas</td></tr>';
 }
 
 // ================ CATEGORÍAS ================

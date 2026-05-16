@@ -233,6 +233,29 @@ app.get('/api/cuotas', async (req, res) => {
   }
 });
 
+// ---- RESUMEN TC POR MES ----
+app.get('/api/resumen-tc', async (req, res) => {
+  try {
+    const { mes_id } = req.query;
+    const params = [];
+    let where = `WHERE t.es_ingreso = false AND t.fuente IN ('cartola_credito','cartola_inter')`;
+    if (mes_id) { params.push(mes_id); where += ` AND t.mes_id = $1`; }
+    const { rows } = await pool.query(`
+      SELECT
+        t.fuente,
+        COUNT(*) AS num_transacciones,
+        SUM(t.monto) AS total
+      FROM transacciones t
+      ${where}
+      GROUP BY t.fuente
+      ORDER BY t.fuente
+    `, params);
+    res.json(rows.map(r => ({ ...r, total: parseInt(r.total), num_transacciones: parseInt(r.num_transacciones) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- ALERTAS GLOBALES ----
 app.get('/api/alertas', async (req, res) => {
   try {
