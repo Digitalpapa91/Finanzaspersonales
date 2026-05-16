@@ -123,6 +123,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
   <button class="nav-btn" onclick="showSection('deudas',this)">Deudas</button>
   <button class="nav-btn" onclick="showSection('categorias',this)">Categorías</button>
   <button class="nav-btn" onclick="showSection('alertas',this)">Alertas</button>
+  <button class="nav-btn" onclick="showSection('transacciones',this)">💳 Transacciones</button>
 </nav>
 
 <div class="wrap">
@@ -223,6 +224,92 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
   <div class="card">
     <div class="card-title">Detalle por categoría</div>
     <table class="tbl" id="cat-tabla"></table>
+  </div>
+</div>
+
+<!-- TRANSACCIONES -->
+<div id="sec-transacciones" class="section">
+  <div class="sec-header">
+    <div class="sec-title">Transacciones</div>
+    <div class="sec-sub">Registro detallado · todas las categorías obligatorias</div>
+  </div>
+
+  <!-- FORMULARIO NUEVA TRANSACCIÓN -->
+  <div class="card">
+    <div class="card-title">➕ Registrar nueva transacción</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px" id="form-grid">
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">MES *</label>
+        <select id="f-mes" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+          <option value="">Selecciona mes…</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">FECHA *</label>
+        <input type="date" id="f-fecha" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">MONTO (CLP) *</label>
+        <input type="number" id="f-monto" placeholder="ej: 35000" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--mono);font-size:13px">
+      </div>
+      <div style="grid-column:span 2">
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">DESCRIPCIÓN *</label>
+        <input type="text" id="f-desc" placeholder="ej: Lider Maipú, pago arriendo, Uber…" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">CATEGORÍA *</label>
+        <select id="f-cat" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+          <option value="">Selecciona categoría…</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">MEDIO DE PAGO</label>
+        <select id="f-medio" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+          <option value="cuenta_corriente">Cuenta Corriente</option>
+          <option value="tarjeta_credito">Tarjeta de Crédito</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">NOTAS</label>
+        <input type="text" id="f-notas" placeholder="opcional…" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:6px;font-family:var(--sans);font-size:13px">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <button onclick="guardarTransaccion()" style="background:var(--accent);color:#fff;border:none;padding:10px 24px;border-radius:7px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer">Guardar transacción</button>
+      <span id="form-msg" style="font-size:13px;color:var(--green)"></span>
+    </div>
+  </div>
+
+  <!-- FILTROS -->
+  <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
+    <select id="filtro-mes" onchange="cargarTransacciones()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:6px;font-family:var(--sans);font-size:13px">
+      <option value="">Todos los meses</option>
+    </select>
+    <select id="filtro-cat" onchange="cargarTransacciones()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:6px;font-family:var(--sans);font-size:13px">
+      <option value="">Todas las categorías</option>
+    </select>
+    <span id="txn-count" style="font-size:12px;color:var(--text3);margin-left:4px"></span>
+  </div>
+
+  <!-- TABLA TRANSACCIONES -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="tbl" id="txn-tabla">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Descripción</th>
+          <th>Categoría</th>
+          <th>Medio</th>
+          <th class="right">Monto</th>
+          <th class="right">Acción</th>
+        </tr>
+      </thead>
+      <tbody id="txn-tbody">
+        <tr><td colspan="6"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -483,6 +570,120 @@ async function initAlertas() {
   }).join('');
 }
 
+// ================ TRANSACCIONES ================
+let catsCache = null;
+let mesesListCache = null;
+
+const MEDIOS = {
+  cuenta_corriente: 'Cta. Corriente',
+  tarjeta_credito: 'TC',
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia'
+};
+
+async function initTransacciones() {
+  // Cargar categorías y meses para los selects
+  if (!catsCache) catsCache = await fetch('/api/categorias').then(r => r.json());
+  if (!mesesListCache) mesesListCache = await fetch('/api/meses').then(r => r.json());
+
+  // Poblar selects de formulario
+  const fCat = document.getElementById('f-cat');
+  const fMes = document.getElementById('f-mes');
+  fCat.innerHTML = '<option value="">Selecciona categoría…</option>' +
+    catsCache.filter(c => c.key !== 'sin_categorizar').map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+  fMes.innerHTML = '<option value="">Selecciona mes…</option>' +
+    mesesListCache.map(m => `<option value="${m.id}">${m.label}${m.mes_abierto ? ' · abierto' : ''}</option>`).join('');
+
+  // Poblar filtros
+  const fmCat = document.getElementById('filtro-cat');
+  const fmMes = document.getElementById('filtro-mes');
+  fmCat.innerHTML = '<option value="">Todas las categorías</option>' +
+    catsCache.map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+  fmMes.innerHTML = '<option value="">Todos los meses</option>' +
+    mesesListCache.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+
+  await cargarTransacciones();
+}
+
+async function cargarTransacciones() {
+  const mesId = document.getElementById('filtro-mes').value;
+  const catKey = document.getElementById('filtro-cat').value;
+  let url = '/api/transacciones?';
+  if (mesId) url += `mes_id=${mesId}&`;
+  if (catKey) url += `categoria_key=${catKey}&`;
+
+  const txns = await fetch(url).then(r => r.json());
+  const tbody = document.getElementById('txn-tbody');
+  document.getElementById('txn-count').textContent = `${txns.length} transacción${txns.length !== 1 ? 'es' : ''}`;
+
+  if (!txns.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:32px">
+      Sin transacciones registradas. ¡Agrega la primera arriba!
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = txns.map(t => `
+    <tr>
+      <td class="mono" style="white-space:nowrap">${t.fecha?.slice(0,10) || '—'}</td>
+      <td style="max-width:220px">${t.descripcion}${t.notas ? `<br><span style="font-size:11px;color:var(--text3)">${t.notas}</span>` : ''}</td>
+      <td><span class="cat-dot" style="background:${t.categoria_color || '#475569'}"></span>${t.categoria_label || t.categoria_key}</td>
+      <td style="font-size:12px;color:var(--text3)">${MEDIOS[t.medio_pago] || t.medio_pago}</td>
+      <td class="mono right" style="color:var(--red)">${fmt(t.monto)}</td>
+      <td class="right">
+        <button onclick="eliminarTransaccion(${t.id})" style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:4px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-family:var(--sans)">Eliminar</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function guardarTransaccion() {
+  const mes_id = document.getElementById('f-mes').value;
+  const fecha = document.getElementById('f-fecha').value;
+  const descripcion = document.getElementById('f-desc').value.trim();
+  const monto = document.getElementById('f-monto').value;
+  const categoria_key = document.getElementById('f-cat').value;
+  const medio_pago = document.getElementById('f-medio').value;
+  const notas = document.getElementById('f-notas').value.trim();
+  const msg = document.getElementById('form-msg');
+
+  if (!mes_id || !fecha || !descripcion || !monto || !categoria_key) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '⚠️ Completa todos los campos obligatorios (*)';
+    return;
+  }
+
+  msg.style.color = 'var(--text3)';
+  msg.textContent = 'Guardando…';
+
+  try {
+    const res = await fetch('/api/transacciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mes_id, fecha, descripcion, monto: parseInt(monto), categoria_key, medio_pago, notas })
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+
+    msg.style.color = 'var(--green)';
+    msg.textContent = '✅ Transacción guardada';
+    // Limpiar formulario
+    document.getElementById('f-desc').value = '';
+    document.getElementById('f-monto').value = '';
+    document.getElementById('f-notas').value = '';
+    await cargarTransacciones();
+    setTimeout(() => msg.textContent = '', 3000);
+  } catch (err) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '❌ Error: ' + err.message;
+  }
+}
+
+async function eliminarTransaccion(id) {
+  if (!confirm('¿Eliminar esta transacción?')) return;
+  await fetch(`/api/transacciones/${id}`, { method: 'DELETE' });
+  await cargarTransacciones();
+}
+
 // ================ INIT ================
 (async () => {
   try {
@@ -491,6 +692,7 @@ async function initAlertas() {
     initDeudas();
     initCategorias();
     initAlertas();
+    initTransacciones();
   } catch (err) {
     console.error('Error cargando datos:', err);
   }

@@ -231,6 +231,94 @@ app.post('/api/meses', async (req, res) => {
   }
 });
 
+// ---- TRANSACCIONES — listar (con filtros opcionales) ----
+app.get('/api/transacciones', async (req, res) => {
+  try {
+    const { mes_id, categoria_key } = req.query;
+    let query = `
+      SELECT t.*, c.label AS categoria_label, c.color AS categoria_color
+      FROM transacciones t
+      LEFT JOIN categorias c ON t.categoria_key = c.key
+      WHERE 1=1
+    `;
+    const params = [];
+    if (mes_id) { params.push(mes_id); query += ` AND t.mes_id = $${params.length}`; }
+    if (categoria_key) { params.push(categoria_key); query += ` AND t.categoria_key = $${params.length}`; }
+    query += ' ORDER BY t.fecha DESC, t.id DESC';
+    const { rows } = await pool.query(query, params);
+    res.json(rows.map(r => ({ ...r, monto: parseInt(r.monto) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- TRANSACCIONES — agregar ----
+app.post('/api/transacciones', async (req, res) => {
+  try {
+    const { mes_id, fecha, descripcion, monto, categoria_key, medio_pago, notas } = req.body;
+    if (!mes_id || !fecha || !descripcion || !monto || !categoria_key) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios: mes_id, fecha, descripcion, monto, categoria_key' });
+    }
+    const { rows } = await pool.query(
+      'INSERT INTO transacciones (mes_id, fecha, descripcion, monto, categoria_key, medio_pago, notas) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [mes_id, fecha, descripcion, parseInt(monto), categoria_key, medio_pago || 'cuenta_corriente', notas || null]
+    );
+    res.status(201).json({ ...rows[0], monto: parseInt(rows[0].monto) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- TRANSACCIONES — editar ----
+app.put('/api/transacciones/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fecha, descripcion, monto, categoria_key, medio_pago, notas } = req.body;
+    const { rows } = await pool.query(
+      'UPDATE transacciones SET fecha=$1, descripcion=$2, monto=$3, categoria_key=$4, medio_pago=$5, notas=$6 WHERE id=$7 RETURNING *',
+      [fecha, descripcion, parseInt(monto), categoria_key, medio_pago, notas, id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Transacción no encontrada' });
+    res.json({ ...rows[0], monto: parseInt(rows[0].monto) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- TRANSACCIONES — eliminar ----
+app.delete('/api/transacciones/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM transacciones WHERE id=$1', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- RESUMEN POR CATEGORÍA con transacciones ----
+app.get('/api/transacciones/por-categoria', async (req, res) => {
+  try {
+    const { mes_id } = req.query;
+    let query = `
+      SELECT
+        t.categoria_key,
+        c.label, c.color,
+        COUNT(*) AS num_transacciones,
+        SUM(t.monto) AS total
+      FROM transacciones t
+      LEFT JOIN categorias c ON t.categoria_key = c.key
+    `;
+    const params = [];
+    if (mes_id) { params.push(mes_id); query += ` WHERE t.mes_id = $1`; }
+    query += ' GROUP BY t.categoria_key, c.label, c.color ORDER BY total DESC';
+    const { rows } = await pool.query(query, params);
+    res.json(rows.map(r => ({ ...r, total: parseInt(r.total), num_transacciones: parseInt(r.num_transacciones) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- CATCH ALL → sirve el HTML ----
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
