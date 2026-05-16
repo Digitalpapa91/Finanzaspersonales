@@ -1,0 +1,26 @@
+-- Nuevas reglas para Tarjeta de Crédito Itaú
+INSERT INTO reglas_categoria (patron, categoria_key, es_ingreso, descripcion_amigable) VALUES
+  ('RED MOVILIDAD', 'transporte', false, 'Red Movilidad (Bip!)'),
+  ('CABIFY', 'transporte', false, 'Cabify'),
+  ('HIPER SAN ANTONIO', 'supermercado', false, 'Hiper San Antonio'),
+  ('HIP LIDER', 'supermercado', false, 'Líder'),
+  ('GASTRONOMICA', 'restaurantes', false, 'Restaurant'),
+  ('BOTILLERIA', 'restaurantes', false, 'Botillería'),
+  ('LOS CHIQUILLOS', 'restaurantes', false, 'Los Chiquillos'),
+  ('ROSARIO NORTE', 'restaurantes', false, 'Rosario Norte'),
+  ('ALMACEN', 'restaurantes', false, 'Almacén'),
+  ('AVANCE EN EFECTIVO', 'costos_financieros_tc', false, 'Avance en Efectivo TC'),
+  ('LIQUI', 'costos_financieros_tc', false, 'Liquidación intereses TC'),
+  ('MOTEL IPANEMA', 'otras_transferencias', false, 'Motel Ipanema'),
+  ('CABANAS', 'otras_transferencias', false, 'Cabañas'),
+  ('LATAMCOM', 'transporte', false, 'LATAM (vuelo)'),
+  ('FALABELLA', 'comercio_digital', false, 'Falabella'),
+  ('PARIS', 'comercio_digital', false, 'Paris'),
+  ('VARSOVIENNE', 'comercio_digital', false, 'Web Varsovienne'),
+  ('TUUSOCIEDAD', 'otras_transferencias', false, 'TuuSociedad Inversiones'),
+  ('HAULMERPUNTO', 'otras_transferencias', false, 'Haulmerpunto'),
+  ('FLOW OUTLET', 'comercio_digital', false, 'Flow Outlet'),
+  ('SERVICIOS Y COMERCIAL', 'otras_transferencias', false, 'Servicios y Comercial'),
+  ('MP PAYQUBIT', 'comercio_digital', false, 'MercadoPago'),
+  ('MERPAGOMERCADOLIBRE', 'comercio_digital', false, 'MercadoLibre')
+ON CONFLICT DO NOTHING;
