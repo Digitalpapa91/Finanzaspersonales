@@ -6,6 +6,10 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const path = require('path');
+const multer = require('multer');
+const { importarCartola } = require('./api/importar');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -314,6 +318,57 @@ app.get('/api/transacciones/por-categoria', async (req, res) => {
     query += ' GROUP BY t.categoria_key, c.label, c.color ORDER BY total DESC';
     const { rows } = await pool.query(query, params);
     res.json(rows.map(r => ({ ...r, total: parseInt(r.total), num_transacciones: parseInt(r.num_transacciones) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- IMPORTAR CARTOLA ----
+app.post('/api/importar', upload.single('cartola'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+    const fuente = req.body.fuente || 'cartola_debito';
+    const resultado = await importarCartola(req.file.buffer, fuente, pool);
+    res.json(resultado);
+  } catch (err) {
+    console.error('Error importando cartola:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- CATEGORÍAS SIN ASIGNAR (para revisar tras importar) ----
+app.get('/api/transacciones/sin-categoria', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT t.*, c.label AS categoria_label
+      FROM transacciones t
+      LEFT JOIN categorias c ON t.categoria_key = c.key
+      WHERE t.categoria_key IS NULL
+      ORDER BY t.fecha DESC
+    `);
+    res.json(rows.map(r => ({ ...r, monto: parseInt(r.monto) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- ASIGNAR CATEGORÍA A TRANSACCIÓN ----
+app.patch('/api/transacciones/:id/categoria', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { categoria_key } = req.body;
+    await pool.query('UPDATE transacciones SET categoria_key=$1 WHERE id=$2', [categoria_key, id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- REGLAS DE CATEGORIZACIÓN ----
+app.get('/api/reglas', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM reglas_categoria WHERE activa=true ORDER BY patron');
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

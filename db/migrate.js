@@ -12,7 +12,8 @@ async function migrate() {
   const client = await pool.connect();
   try {
     console.log('🔄 Ejecutando migración...');
-    const sql = fs.readFileSync(path.join(__dirname, 'migrate_transacciones.sql'), 'utf8');
+    const sql = fs.readFileSync(path.join(__dirname, 'migrate_transacciones.sql'), 'utf8') + '\n' +
+            fs.readFileSync(path.join(__dirname, 'migrate_importador.sql'), 'utf8');
     await client.query(sql);
     console.log('✅ Migración completada.');
   } catch (err) {

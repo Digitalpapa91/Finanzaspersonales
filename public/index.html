@@ -197,7 +197,8 @@ select:focus, input:focus {
   <button class="nav-btn" onclick="showSection('deudas',this)">Deudas</button>
   <button class="nav-btn" onclick="showSection('categorias',this)">Categorías</button>
   <button class="nav-btn" onclick="showSection('alertas',this)">Alertas</button>
-  <button class="nav-btn" onclick="showSection('transacciones',this)">💳 Transacciones</button>
+  <button class="nav-btn" onclick="showSection('transacciones',this)">Transacciones</button>
+  <button class="nav-btn" onclick="showSection('importar',this)">⬆ Importar Cartola</button>
 </nav>
 
 <div class="wrap">
@@ -396,6 +397,79 @@ select:focus, input:focus {
         <tr><td colspan="6"><div class="loader"><div class="spinner"></div> Cargando…</div></td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- IMPORTAR CARTOLA -->
+<div id="sec-importar" class="section">
+  <div class="sec-header">
+    <div class="sec-title">Importar Cartola Itaú</div>
+    <div class="sec-sub">Sube archivos semanales o el cierre mensual · los duplicados se ignoran automáticamente</div>
+  </div>
+
+  <!-- ZONA DE CARGA -->
+  <div class="card">
+    <div class="card-title">Subir archivo XLS / XLSX</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;font-weight:600">TIPO DE CARTOLA</label>
+        <select id="imp-fuente" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border2);font-size:13px;color:var(--text);background:var(--surface)">
+          <option value="cartola_debito">Cuenta Corriente / Débito</option>
+          <option value="cartola_credito">Tarjeta de Crédito</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;font-weight:600">ARCHIVO</label>
+        <input type="file" id="imp-archivo" accept=".xls,.xlsx" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border2);font-size:13px;color:var(--text);background:var(--surface);cursor:pointer">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <button onclick="importarCartola()" id="btn-importar" style="background:var(--accent2);color:#fff;border:none;padding:11px 28px;border-radius:8px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer">
+        ⬆ Importar
+      </button>
+      <span id="imp-msg" style="font-size:13px"></span>
+    </div>
+  </div>
+
+  <!-- RESULTADO DE IMPORTACIÓN -->
+  <div id="imp-resultado" style="display:none">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px" id="imp-kpis"></div>
+
+    <!-- TRANSACCIONES SIN CATEGORÍA -->
+    <div id="imp-sin-cat-wrap" style="display:none">
+      <div class="card" style="border-top:3px solid var(--yellow)">
+        <div class="card-title" style="color:var(--yellow)">⚠ Transacciones sin categoría — asígnales una</div>
+        <table class="tbl" id="imp-sin-cat-tabla">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Descripción Banco</th>
+              <th class="right">Monto</th>
+              <th>Categoría</th>
+              <th class="right">Guardar</th>
+            </tr>
+          </thead>
+          <tbody id="imp-sin-cat-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TRANSACCIONES IMPORTADAS -->
+    <div class="card">
+      <div class="card-title">Transacciones importadas en esta sesión</div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Descripción</th>
+            <th>Categoría asignada</th>
+            <th class="right">Monto</th>
+            <th>Tipo</th>
+          </tr>
+        </thead>
+        <tbody id="imp-detalle-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -813,6 +887,122 @@ async function eliminarTransaccion(id) {
   if (!confirm('¿Eliminar esta transacción?')) return;
   await fetch(`/api/transacciones/${id}`, { method: 'DELETE' });
   await cargarTransacciones();
+}
+
+// ================ IMPORTAR CARTOLA ================
+async function importarCartola() {
+  const archivo = document.getElementById('imp-archivo').files[0];
+  const fuente  = document.getElementById('imp-fuente').value;
+  const msg     = document.getElementById('imp-msg');
+  const btn     = document.getElementById('btn-importar');
+
+  if (!archivo) { msg.style.color='var(--red)'; msg.textContent='⚠ Selecciona un archivo primero'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Importando…';
+  msg.style.color = 'var(--text3)';
+  msg.textContent = 'Procesando archivo…';
+
+  const fd = new FormData();
+  fd.append('cartola', archivo);
+  fd.append('fuente', fuente);
+
+  try {
+    const res  = await fetch('/api/importar', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    msg.style.color = 'var(--green)';
+    msg.textContent = `✅ Listo: ${data.importados} nuevas, ${data.duplicados} duplicadas ignoradas`;
+
+    // Mostrar KPIs resultado
+    document.getElementById('imp-resultado').style.display = 'block';
+    document.getElementById('imp-kpis').innerHTML = [
+      { label: 'En el archivo',  val: data.total_archivo, color: 'var(--accent2)' },
+      { label: 'Importadas',     val: data.importados,    color: 'var(--green)'   },
+      { label: 'Duplicadas (ignoradas)', val: data.duplicados, color: 'var(--text3)' },
+      { label: 'Sin categoría',  val: data.sin_categoria, color: 'var(--yellow)'  },
+    ].map(k => `
+      <div class="kpi" style="border-top-color:${k.color}">
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-val" style="color:${k.color};font-size:28px">${k.val}</div>
+      </div>
+    `).join('');
+
+    // Tabla de importadas
+    document.getElementById('imp-detalle-body').innerHTML = data.detalle.map(t => `
+      <tr>
+        <td class="mono" style="color:var(--text3)">${t.fecha}</td>
+        <td style="color:var(--text);font-size:12px">${t.descripcion}</td>
+        <td>${t.categoria_label
+          ? `<span class="badge badge-blue">${t.categoria_label}</span>`
+          : `<span class="badge badge-yellow">Sin categoría</span>`}
+        </td>
+        <td class="mono right" style="color:${t.es_ingreso ? 'var(--green)' : 'var(--red)'}">
+          ${t.es_ingreso ? '+' : '-'}${fmt(t.monto)}
+        </td>
+        <td><span class="badge ${t.es_ingreso ? 'badge-green' : 'badge-blue'}">${t.es_ingreso ? 'Ingreso' : 'Gasto'}</span></td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Todas ya existían (0 nuevas)</td></tr>';
+
+    // Cargar y mostrar sin categoría
+    await cargarSinCategoria();
+
+    // Invalidar caché para que otras secciones recarguen
+    mesesCache = null;
+
+  } catch (err) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '❌ Error: ' + err.message;
+  } finally {
+    btn.disabled  = false;
+    btn.textContent = '⬆ Importar';
+  }
+}
+
+async function cargarSinCategoria() {
+  if (!catsCache) catsCache = await fetch('/api/categorias').then(r => r.json());
+  const rows = await fetch('/api/transacciones/sin-categoria').then(r => r.json());
+  const wrap = document.getElementById('imp-sin-cat-wrap');
+
+  if (!rows.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+
+  const opts = catsCache.filter(c => c.key !== 'sin_categorizar')
+    .map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+
+  document.getElementById('imp-sin-cat-body').innerHTML = rows.map(t => `
+    <tr id="sincat-${t.id}">
+      <td class="mono" style="color:var(--text3);white-space:nowrap">${t.fecha?.slice(0,10)}</td>
+      <td style="color:var(--text);font-size:12px">${t.descripcion}</td>
+      <td class="mono right" style="color:${t.es_ingreso ? 'var(--green)' : 'var(--red)'}">${t.es_ingreso ? '+' : '-'}${fmt(t.monto)}</td>
+      <td>
+        <select id="cat-sel-${t.id}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border2);font-size:12px;color:var(--text);background:var(--surface);width:100%">
+          <option value="">Selecciona…</option>${opts}
+        </select>
+      </td>
+      <td class="right">
+        <button onclick="asignarCategoria(${t.id})"
+          style="background:var(--accent-light);border:1px solid var(--accent-mid);color:var(--accent);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--sans);font-weight:600">
+          Guardar
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function asignarCategoria(id) {
+  const cat = document.getElementById(`cat-sel-${id}`).value;
+  if (!cat) return alert('Selecciona una categoría');
+  await fetch(`/api/transacciones/${id}/categoria`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categoria_key: cat })
+  });
+  const row = document.getElementById(`sincat-${id}`);
+  row.style.opacity = '0.4';
+  row.style.transition = 'opacity 0.3s';
+  setTimeout(() => row.remove(), 300);
 }
 
 // ================ INIT ================
