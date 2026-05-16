@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Finanzas — Acceso</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(30,41,59,0.10);
+      padding: 48px 40px 40px;
+      width: 100%;
+      max-width: 380px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo-icon {
+      width: 56px; height: 56px;
+      background: #1e293b;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      margin-bottom: 14px;
+    }
+    .logo h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .logo p {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      color: #1e293b;
+      background: #f8fafc;
+      transition: border-color 0.15s;
+      margin-bottom: 18px;
+    }
+    input:focus { outline: none; border-color: #2563eb; background: #fff; }
+    button {
+      width: 100%;
+      padding: 13px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-top: 4px;
+    }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      color: #dc2626;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-top: 14px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">💼</div>
+      <h1>Mis Finanzas</h1>
+      <p>Ingresa tus credenciales para continuar</p>
+    </div>
+
+    <form id="form-login" onsubmit="login(event)">
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" placeholder="Tu usuario" autocomplete="username" required>
+
+      <label for="contrasena">Contraseña</label>
+      <input type="password" id="contrasena" placeholder="••••••••" autocomplete="current-password" required>
+
+      <button type="submit" id="btn-login">Ingresar</button>
+    </form>
+
+    <div class="error" id="error-msg">Usuario o contraseña incorrectos.</div>
+  </div>
+
+  <script>
+    async function login(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-login');
+      const err = document.getElementById('error-msg');
+      btn.disabled = true;
+      btn.textContent = 'Verificando…';
+      err.style.display = 'none';
+
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario: document.getElementById('usuario').value.trim(),
+          contrasena: document.getElementById('contrasena').value
+        })
+      });
+
+      if (res.ok) {
+        window.location.href = '/';
+      } else {
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Ingresar';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -199,6 +199,7 @@ select:focus, input:focus {
   <button class="nav-btn" onclick="showSection('alertas',this)">Alertas</button>
   <button class="nav-btn" onclick="showSection('transacciones',this)">Transacciones</button>
   <button class="nav-btn" onclick="showSection('importar',this)">⬆ Importar Cartola</button>
+  <button class="nav-btn" onclick="cerrarSesion()" style="margin-left:auto;color:#f87171">⏻ Salir</button>
 </nav>
 
 <div class="wrap">
@@ -905,6 +906,21 @@ async function guardarTransaccion() {
     msg.textContent = '❌ Error: ' + err.message;
   }
 }
+
+async function cerrarSesion() {
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+}
+
+// Redirige al login si la sesión expiró (respuesta 401)
+const _fetch = window.fetch;
+window.fetch = async function(...args) {
+  const res = await _fetch(...args);
+  if (res.status === 401 && !args[0].includes('/api/login')) {
+    window.location.href = '/login.html';
+  }
+  return res;
+};
 
 function filtrarPorCategoria(catKey) {
   const sel = document.getElementById('filtro-cat');

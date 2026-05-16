@@ -7,6 +7,8 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const path = require('path');
 const multer = require('multer');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 const { importarCartola } = require('./api/importar');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -21,7 +23,52 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
+// ---- SESIONES ----
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'finanzas_secret_local',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 } // 8 horas
+}));
+
+// ---- LOGIN / LOGOUT ----
+app.post('/api/login', async (req, res) => {
+  const { usuario, contrasena } = req.body;
+  const userOk = usuario === process.env.APP_USER;
+  const passOk = userOk && bcrypt.compareSync(contrasena, process.env.APP_PASSWORD_HASH);
+  if (userOk && passOk) {
+    req.session.autenticado = true;
+    req.session.usuario = usuario;
+    return res.json({ ok: true });
+  }
+  res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.get('/api/me', (req, res) => {
+  if (req.session.autenticado) return res.json({ usuario: req.session.usuario });
+  res.status(401).json({ error: 'No autenticado' });
+});
+
+// ---- MIDDLEWARE AUTH — protege todas las rutas /api/* excepto login ----
+app.use('/api', (req, res, next) => {
+  if (['/api/login', '/api/logout', '/api/health'].includes(req.path)) return next();
+  if (!req.session.autenticado) return res.status(401).json({ error: 'No autenticado' });
+  next();
+});
+
+// ---- ARCHIVOS ESTÁTICOS (después del middleware auth) ----
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Ruta raíz: redirige a login si no está autenticado
+app.get('/', (req, res) => {
+  if (!req.session.autenticado) return res.redirect('/login.html');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // ---- HEALTH CHECK ----
 app.get('/api/health', (req, res) => {
