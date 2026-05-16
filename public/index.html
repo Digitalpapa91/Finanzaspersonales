@@ -413,14 +413,20 @@ select:focus, input:focus {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div>
         <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;font-weight:600">TIPO DE CARTOLA</label>
-        <select id="imp-fuente" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border2);font-size:13px;color:var(--text);background:var(--surface)">
+        <select id="imp-fuente" onchange="toggleTipoCambio()" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border2);font-size:13px;color:var(--text);background:var(--surface)">
           <option value="cartola_debito">Cuenta Corriente / Débito</option>
-          <option value="cartola_credito">Tarjeta de Crédito</option>
+          <option value="cartola_credito">Tarjeta de Crédito Nacional</option>
+          <option value="cartola_inter">Tarjeta de Crédito Internacional (USD)</option>
         </select>
       </div>
       <div>
         <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;font-weight:600">ARCHIVO</label>
         <input type="file" id="imp-archivo" accept=".xls,.xlsx" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border2);font-size:13px;color:var(--text);background:var(--surface);cursor:pointer">
+      </div>
+      <div id="tipo-cambio-wrap" style="display:none">
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;font-weight:600">TIPO DE CAMBIO USD → CLP</label>
+        <input type="number" id="imp-tc" value="950" min="1" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--accent-mid);font-size:13px;color:var(--text);background:var(--accent-light);font-family:var(--mono)">
+        <span style="font-size:10px;color:var(--text3);margin-top:3px;display:block">Ingresa el tipo de cambio del día (ej: 950)</span>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:14px">
@@ -890,6 +896,11 @@ async function eliminarTransaccion(id) {
 }
 
 // ================ IMPORTAR CARTOLA ================
+function toggleTipoCambio() {
+  const fuente = document.getElementById('imp-fuente').value;
+  document.getElementById('tipo-cambio-wrap').style.display = fuente === 'cartola_inter' ? 'block' : 'none';
+}
+
 async function importarCartola() {
   const archivo = document.getElementById('imp-archivo').files[0];
   const fuente  = document.getElementById('imp-fuente').value;
@@ -904,8 +915,10 @@ async function importarCartola() {
   msg.textContent = 'Procesando archivo…';
 
   const fd = new FormData();
+  const tipoCambio = document.getElementById('imp-tc')?.value || 950;
   fd.append('cartola', archivo);
   fd.append('fuente', fuente);
+  fd.append('tipo_cambio', tipoCambio);
 
   try {
     const res  = await fetch('/api/importar', { method: 'POST', body: fd });

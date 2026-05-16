@@ -180,31 +180,38 @@ function parsearTC(rows) {
 // DETECTAR TIPO DE CARTOLA AUTOMÁTICAMENTE
 // ============================================================
 function detectarTipo(rows) {
-  for (let i = 0; i < Math.min(rows.length, 25); i++) {
-    const cell = String(rows[i][0] || '').toLowerCase();
-    if (cell.includes('fecha compra')) return 'tc';
-    if (cell.includes('últimos movimientos') || cell.includes('ultimos movimientos')) return 'cc';
-    if (cell.includes('tarjeta de crédito') || cell.includes('tarjeta de credito')) return 'tc';
-    if (cell.includes('cuenta corriente')) return 'cc';
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const joined = rows[i].map(c => String(c).toLowerCase()).join('|');
+    if (joined.includes('fecha operaci') || joined.includes('monto usd') || joined.includes('estado de cuenta internacional')) return 'tc_inter';
+    if (joined.includes('fecha compra')) return 'tc';
+    if (joined.includes('últimos movimientos') || joined.includes('ultimos movimientos')) return 'cc';
+    if (joined.includes('tarjeta de crédito') || joined.includes('tarjeta de credito')) return 'tc';
+    if (joined.includes('cuenta corriente')) return 'cc';
   }
-  return 'cc'; // default
+  return 'cc';
 }
 
 // ============================================================
 // IMPORTAR A LA BD CON DEDUPLICACIÓN
 // ============================================================
-async function importarCartola(buffer, fuente = 'cartola_debito', pool) {
+async function importarCartola(buffer, fuente = 'cartola_debito', pool, tipoCambio = 950) {
   const wb   = XLSX.read(buffer, { type: 'buffer' });
   const ws   = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-  // Auto-detectar tipo si no se especificó correctamente
+  // Auto-detectar tipo
   const tipoDetectado = detectarTipo(rows);
-  const esTC = fuente === 'cartola_credito' || tipoDetectado === 'tc';
+  const esTCInter = fuente === 'cartola_inter' || tipoDetectado === 'tc_inter';
+  const esTC      = !esTCInter && (fuente === 'cartola_credito' || tipoDetectado === 'tc');
 
-  const movimientos = esTC ? parsearTC(rows) : parsearCC(rows);
-  const fuenteFinal = esTC ? 'cartola_credito' : 'cartola_debito';
-  const medioPago   = esTC ? 'tarjeta_credito' : 'cuenta_corriente';
+  let movimientos;
+  if (esTCInter)     movimientos = parsearTCInter(rows, tipoCambio);
+  else if (esTC)     movimientos = parsearTC(rows);
+  else               movimientos = parsearCC(rows);
+
+  const fuenteFinal = esTCInter ? 'cartola_inter' : esTC ? 'cartola_credito' : 'cartola_debito';
+  const medioPago   = esTCInter || esTC ? 'tarjeta_credito' : 'cuenta_corriente';
+  const tipoLabel   = esTCInter ? 'TC Internacional (USD)' : esTC ? 'Tarjeta de Crédito' : 'Cuenta Corriente';
 
   let importados   = 0;
   let duplicados   = 0;
@@ -243,7 +250,11 @@ async function importarCartola(buffer, fuente = 'cartola_debito', pool) {
     }
 
     // Insertar
-    const notas = mov.cuotas ? `Cuota ${mov.cuotas}${mov.ciudad ? ' · ' + mov.ciudad : ''}` : (mov.ciudad || null);
+    const notas = mov.monto_usd
+      ? `USD $${mov.monto_usd} · TC $${mov.tipo_cambio}${mov.pais ? ' · ' + mov.pais : ''}`
+      : mov.cuotas
+        ? `Cuota ${mov.cuotas}${mov.ciudad ? ' · ' + mov.ciudad : ''}`
+        : (mov.ciudad || null);
     const { rows: inserted } = await pool.query(`
       INSERT INTO transacciones
         (mes_id, fecha, descripcion, monto, categoria_key, medio_pago, es_ingreso, fuente, cartola_hash, numero_doc, notas)
@@ -272,9 +283,70 @@ async function importarCartola(buffer, fuente = 'cartola_debito', pool) {
   return {
     importados, duplicados, sin_categoria,
     total_archivo: movimientos.length,
-    tipo: esTC ? 'Tarjeta de Crédito' : 'Cuenta Corriente',
+    tipo: tipoLabel,
     detalle
   };
 }
 
-module.exports = { importarCartola };
+// ============================================================
+// PARSER TARJETA INTERNACIONAL (USD)
+// Columnas: N°ref | - | Fecha | Descripción | Ciudad | País | Monto origen | Monto USD
+// ============================================================
+function parsearTCInter(rows, tipoCambio = 950) {
+  // Encontrar fila de encabezado: contiene "Fecha operación"
+  let headerRow = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const joined = rows[i].map(c => String(c).toLowerCase()).join('|');
+    if (joined.includes('fecha operaci') || joined.includes('monto usd')) {
+      headerRow = i; break;
+    }
+  }
+  if (headerRow === -1) throw new Error('No se encontró encabezado en cartola internacional');
+
+  // Ignorar
+  const IGNORAR_INTER = ['TRASPASO DEUDA INTERNAC', 'PROMO MASTERCARD'];
+
+  const movimientos = [];
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const refRaw  = String(row[0] || '').trim();
+    const fechaRaw = row[2];
+    const descRaw  = String(row[3] || '').trim();
+    const ciudad   = String(row[4] || '').trim();
+    const pais     = String(row[5] || '').trim();
+    const montoUSD = parseFloat(row[7]);
+
+    // Saltar filas sin referencia real o sin fecha válida
+    if (!refRaw || refRaw === ' ' || !descRaw || descRaw === ' ') continue;
+    if (!fechaRaw || isNaN(Number(fechaRaw))) continue;
+    if (isNaN(montoUSD) || montoUSD === 0) continue;
+
+    const fechaISO = excelDateToISO(Number(fechaRaw));
+    if (!fechaISO) continue;
+
+    const descUp = descRaw.toUpperCase();
+    if (IGNORAR_INTER.some(ig => descUp.includes(ig))) continue;
+
+    const esIngreso = montoUSD < 0;
+    const usdAbs    = Math.abs(montoUSD);
+    const montoCLP  = Math.round(usdAbs * tipoCambio);
+
+    movimientos.push({
+      fecha: fechaISO,
+      mes_id: getMesId(fechaISO),
+      descripcion: descRaw,
+      monto: montoCLP,
+      es_ingreso: esIngreso,
+      cuotas: null,
+      numero_doc: refRaw,
+      ciudad: ciudad || null,
+      pais: pais || null,
+      monto_usd: usdAbs,
+      tipo_cambio: tipoCambio
+    });
+  }
+  return movimientos;
+}
+
+// Exportar parsers individuales también
+module.exports = { importarCartola, parsearTCInter };

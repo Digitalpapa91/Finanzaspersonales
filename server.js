@@ -327,8 +327,9 @@ app.get('/api/transacciones/por-categoria', async (req, res) => {
 app.post('/api/importar', upload.single('cartola'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-    const fuente = req.body.fuente || 'cartola_debito';
-    const resultado = await importarCartola(req.file.buffer, fuente, pool);
+    const fuente      = req.body.fuente || 'cartola_debito';
+    const tipoCambio  = parseFloat(req.body.tipo_cambio) || 950;
+    const resultado   = await importarCartola(req.file.buffer, fuente, pool, tipoCambio);
     res.json(resultado);
   } catch (err) {
     console.error('Error importando cartola:', err);
