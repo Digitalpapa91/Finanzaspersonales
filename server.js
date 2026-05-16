@@ -360,15 +360,21 @@ app.get('/api/transacciones/por-categoria', async (req, res) => {
         t.categoria_key,
         c.label, c.color,
         COUNT(*) AS num_transacciones,
-        SUM(t.monto) AS total
+        SUM(CASE WHEN NOT t.es_ingreso THEN t.monto ELSE 0 END) AS egresos,
+        SUM(CASE WHEN t.es_ingreso THEN t.monto ELSE 0 END) AS ingresos
       FROM transacciones t
       LEFT JOIN categorias c ON t.categoria_key = c.key
     `;
     const params = [];
     if (mes_id) { params.push(mes_id); query += ` WHERE t.mes_id = $1`; }
-    query += ' GROUP BY t.categoria_key, c.label, c.color ORDER BY total DESC';
+    query += ' GROUP BY t.categoria_key, c.label, c.color ORDER BY egresos DESC';
     const { rows } = await pool.query(query, params);
-    res.json(rows.map(r => ({ ...r, total: parseInt(r.total), num_transacciones: parseInt(r.num_transacciones) })));
+    res.json(rows.map(r => ({
+      ...r,
+      egresos: parseInt(r.egresos) || 0,
+      ingresos: parseInt(r.ingresos) || 0,
+      num_transacciones: parseInt(r.num_transacciones)
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
