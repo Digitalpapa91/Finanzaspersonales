@@ -233,7 +233,7 @@ app.get('/api/cuotas', async (req, res) => {
   }
 });
 
-// ---- RESUMEN TC POR MES ----
+// ---- RESUMEN TC POR MES (detalle con cuotas) ----
 app.get('/api/resumen-tc', async (req, res) => {
   try {
     const { mes_id } = req.query;
@@ -242,15 +242,30 @@ app.get('/api/resumen-tc', async (req, res) => {
     if (mes_id) { params.push(mes_id); where += ` AND t.mes_id = $1`; }
     const { rows } = await pool.query(`
       SELECT
-        t.fuente,
-        COUNT(*) AS num_transacciones,
-        SUM(t.monto) AS total
+        t.id, t.fuente, t.descripcion, t.monto, t.categoria_key,
+        TO_CHAR(t.fecha, 'DD/MM') AS fecha_fmt,
+        c.label AS categoria_label, c.color AS categoria_color,
+        -- Extraer cuota actual del patrón [cuota NN/NN]
+        CASE WHEN t.descripcion ~* '\\[cuota (\\d+)/(\\d+)\\]'
+          THEN (regexp_match(t.descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[1]
+          ELSE NULL END AS cuota_actual,
+        CASE WHEN t.descripcion ~* '\\[cuota (\\d+)/(\\d+)\\]'
+          THEN (regexp_match(t.descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[2]
+          ELSE NULL END AS cuota_total
       FROM transacciones t
+      LEFT JOIN categorias c ON t.categoria_key = c.key
       ${where}
-      GROUP BY t.fuente
-      ORDER BY t.fuente
+      ORDER BY t.fuente, t.monto DESC
     `, params);
-    res.json(rows.map(r => ({ ...r, total: parseInt(r.total), num_transacciones: parseInt(r.num_transacciones) })));
+
+    // Marcar cuota_actual = '00' como próximo mes
+    const result = rows.map(r => ({
+      ...r,
+      monto: parseInt(r.monto),
+      proximo_mes: r.cuota_actual === '00'
+    }));
+
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
