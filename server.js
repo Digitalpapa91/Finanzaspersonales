@@ -255,7 +255,7 @@ app.get('/api/resumen-tc', async (req, res) => {
       FROM transacciones t
       LEFT JOIN categorias c ON t.categoria_key = c.key
       ${where}
-      ORDER BY t.fuente, t.monto DESC
+      ORDER BY t.fuente, t.es_ingreso ASC, t.monto DESC
     `, params);
 
     // Marcar cuota_actual = '00' como próximo mes

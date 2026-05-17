@@ -13,10 +13,8 @@ const IGNORAR_CC = [
 ];
 
 // ---- Movimientos a ignorar (Tarjeta de Crédito) ----
-// "MONTO CANCELADO" = pagos que ya aparecen en la CC cartola
-const IGNORAR_TC = [
-  'MONTO CANCELADO'
-];
+// "MONTO CANCELADO" ya NO se ignora — se captura como ingreso (pago recibido en TC)
+const IGNORAR_TC = [];
 
 // Convertir serial de Excel a fecha ISO (YYYY-MM-DD)
 function excelDateToISO(serial) {
@@ -146,11 +144,12 @@ function parsearTC(rows) {
 
     const descUp = descRaw.toUpperCase();
 
-    // Ignorar pagos realizados a la TC (ya están en CC)
     if (IGNORAR_TC.some(ig => descUp.includes(ig))) continue;
 
+    // "MONTO CANCELADO" = pago recibido en TC → siempre ingreso
+    const esPagoTC = descUp.includes('MONTO CANCELADO');
     // Monto negativo = crédito/devolución → es ingreso
-    const esIngreso = montoRaw < 0;
+    const esIngreso = esPagoTC ? true : montoRaw < 0;
     const monto = Math.abs(Math.round(montoRaw));
 
     // Info de cuotas (ej: "03/12" = cuota 3 de 12)
