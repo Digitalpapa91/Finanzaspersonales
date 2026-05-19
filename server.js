@@ -54,25 +54,26 @@ app.get('/api/me', (req, res) => {
   res.status(401).json({ error: 'No autenticado' });
 });
 
-// ---- MIDDLEWARE AUTH — protege todas las rutas /api/* excepto login ----
+// ---- HEALTH CHECK (público, antes del auth) ----
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ---- MIDDLEWARE AUTH — protege todas las rutas /api/* excepto login/logout/health ----
 app.use('/api', (req, res, next) => {
-  if (['/api/login', '/api/logout', '/api/health'].includes(req.path)) return next();
+  // req.path aquí es relativo al montaje /api, ej: /login /logout /health
+  if (['/login', '/logout', '/health', '/me'].includes(req.path)) return next();
   if (!req.session.autenticado) return res.status(401).json({ error: 'No autenticado' });
   next();
 });
 
-// ---- ARCHIVOS ESTÁTICOS (después del middleware auth) ----
+// ---- ARCHIVOS ESTÁTICOS ----
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Ruta raíz: redirige a login si no está autenticado
 app.get('/', (req, res) => {
   if (!req.session.autenticado) return res.redirect('/login.html');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ---- HEALTH CHECK ----
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // ---- RESUMEN GENERAL ----
