@@ -328,12 +328,21 @@ app.get('/api/resumen-tc', async (req, res) => {
       ORDER BY t.fuente, t.es_ingreso ASC, t.monto DESC
     `, params);
 
-    // Marcar cuota_actual = '00' como próximo mes
-    const result = rows.map(r => ({
-      ...r,
-      monto: parseInt(r.monto),
-      proximo_mes: r.cuota_actual === '00'
-    }));
+    const result = rows.map(r => {
+      const esProximoMes = r.cuota_actual === '00';
+      const montoTotal   = parseInt(r.monto);
+      // Para cuota 00/X el monto almacenado es el total de la compra.
+      // La cuota mensual = monto_total / total_cuotas
+      const cuotaMensual = esProximoMes && r.cuota_total
+        ? Math.round(montoTotal / parseInt(r.cuota_total))
+        : montoTotal;
+      return {
+        ...r,
+        monto:         montoTotal,
+        cuota_mensual: cuotaMensual,
+        proximo_mes:   esProximoMes
+      };
+    });
 
     res.json(result);
   } catch (err) {
