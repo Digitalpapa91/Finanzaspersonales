@@ -267,15 +267,72 @@ app.get('/api/meses/:id/analisis', async (req, res) => {
     `, [id]);
 
     const r = rows[0];
+    let cuotas_heredadas = parseInt(r.cuotas_heredadas) || 0;
+    let detalle = detalleCuotas.map(d => ({ ...d, monto: parseInt(d.monto) }));
+
+    // Si no hay cuotas heredadas importadas, proyectarlas desde meses anteriores
+    // Buscar cuotas activas de meses previos que aún continúen en este mes
+    if (cuotas_heredadas === 0) {
+      const { rows: proyectadas } = await pool.query(`
+        WITH cuotas_activas AS (
+          SELECT
+            descripcion,
+            monto,
+            fuente,
+            (regexp_match(descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[1]::int AS cuota_actual,
+            (regexp_match(descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[2]::int AS cuota_total,
+            mes_id
+          FROM transacciones
+          WHERE NOT es_ingreso
+            AND descripcion ~* '\\[cuota \\d+/\\d+\\]'
+            AND mes_id < $1
+        )
+        SELECT descripcion, monto, fuente, cuota_actual, cuota_total, mes_id,
+          -- Cuántos meses faltan = cuota_total - cuota_actual
+          (cuota_total - cuota_actual) AS meses_restantes
+        FROM cuotas_activas
+        WHERE cuota_actual > 0           -- excluir cuota 00
+          AND cuota_actual < cuota_total -- aún no terminada
+          -- La cuota más reciente de esa descripción
+          AND (descripcion, mes_id) IN (
+            SELECT descripcion, MAX(mes_id)
+            FROM cuotas_activas
+            WHERE cuota_actual > 0 AND cuota_actual < cuota_total
+            GROUP BY descripcion
+          )
+          -- Y que siga vigente este mes (cuota_actual + diferencia de meses <= cuota_total)
+          AND (cuota_actual + (
+            (EXTRACT(YEAR FROM $1::date) - EXTRACT(YEAR FROM (mes_id || '-01')::date)) * 12 +
+            (EXTRACT(MONTH FROM $1::date) - EXTRACT(MONTH FROM (mes_id || '-01')::date))
+          )) <= cuota_total
+        ORDER BY monto DESC
+      `, [id + '-01']);
+
+      if (proyectadas.length > 0) {
+        cuotas_heredadas = proyectadas.reduce((s, p) => s + parseInt(p.monto), 0);
+        detalle = proyectadas.map(p => ({
+          descripcion: p.descripcion,
+          monto: parseInt(p.monto),
+          fuente: p.fuente,
+          cuota_actual: String(parseInt(p.cuota_actual) + parseInt(
+            (new Date(id + '-01').getFullYear() - new Date(p.mes_id + '-01').getFullYear()) * 12 +
+            (new Date(id + '-01').getMonth() - new Date(p.mes_id + '-01').getMonth())
+          )).padStart(2, '0'),
+          cuota_total: String(p.cuota_total).padStart(2, '0'),
+          proyectado: true
+        }));
+      }
+    }
+
     res.json({
       total_egresos:    parseInt(r.total_egresos) || 0,
-      cuotas_heredadas: parseInt(r.cuotas_heredadas) || 0,
+      cuotas_heredadas,
       cuotas_nuevas:    parseInt(r.cuotas_nuevas) || 0,
       gasto_contado:    parseInt(r.gasto_contado) || 0,
       proximo_mes:      parseInt(r.proximo_mes) || 0,
       total_ingresos:   parseInt(r.total_ingresos) || 0,
       gasto_nuevo:      (parseInt(r.gasto_contado) || 0) + (parseInt(r.cuotas_nuevas) || 0),
-      detalle_cuotas:   detalleCuotas.map(d => ({ ...d, monto: parseInt(d.monto) }))
+      detalle_cuotas:   detalle
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -723,19 +723,22 @@ async function showMonthDetail(mesId, cardEl, anPrecargado) {
     </div>
     ${an.detalle_cuotas?.length > 0 ? `
     <div style="margin-bottom:20px">
-      <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🔁 Cuotas TC heredadas de meses anteriores</div>
+      <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
+        🔁 Cuotas TC heredadas de meses anteriores
+        ${an.detalle_cuotas.some(c => c.proyectado) ? '<span style="font-size:10px;font-weight:400;color:#a16207;background:#fef9c3;border:1px solid #fde047;border-radius:4px;padding:2px 6px;margin-left:8px;text-transform:none">⚠ estimado — importa TC de este mes para valor exacto</span>' : ''}
+      </div>
       <table class="tbl" style="font-size:12px">
         <thead><tr><th>Descripción</th><th class="right">Cuota</th><th class="right">Monto</th></tr></thead>
         <tbody>
           ${an.detalle_cuotas.map(c => `
-            <tr>
-              <td>${c.descripcion.replace(/\s*\[cuota.*?\]/i,'').trim()}</td>
+            <tr style="${c.proyectado ? 'opacity:0.75;background:#fefce8' : ''}">
+              <td>${c.descripcion.replace(/\s*\[cuota.*?\]/i,'').trim()}${c.proyectado ? ' <span style="font-size:9px;color:#a16207;background:#fef9c3;border:1px solid #fde047;border-radius:3px;padding:1px 4px">~est</span>' : ''}</td>
               <td class="mono right" style="color:#7c3aed">${c.cuota_actual}/${c.cuota_total}</td>
-              <td class="mono right">${fmt(c.monto)}</td>
+              <td class="mono right">${c.proyectado ? '~' : ''}${fmt(c.monto)}</td>
             </tr>`).join('')}
           <tr style="border-top:1px solid var(--border2)">
-            <td class="bold" colspan="2">Total cuotas heredadas</td>
-            <td class="mono right bold" style="color:#7c3aed">${fmt(an.cuotas_heredadas)}</td>
+            <td class="bold" colspan="2">Total cuotas heredadas${an.detalle_cuotas.some(c => c.proyectado) ? ' <span style="font-size:9px;color:#a16207">(estimado)</span>' : ''}</td>
+            <td class="mono right bold" style="color:#7c3aed">${an.detalle_cuotas.some(c => c.proyectado) ? '~' : ''}${fmt(an.cuotas_heredadas)}</td>
           </tr>
         </tbody>
       </table>
