@@ -184,6 +184,75 @@ app.get('/api/meses/:id', async (req, res) => {
   }
 });
 
+// ---- ANÁLISIS GASTO REAL vs CUOTAS POR MES ----
+app.get('/api/meses/:id/analisis', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(`
+      SELECT
+        -- Total egresos del mes (excluye cuota 00/X que se cobra el próximo mes)
+        SUM(CASE WHEN NOT es_ingreso
+          AND NOT (descripcion ~* '\\[cuota 0+/(\\d+)\\]')
+          THEN monto ELSE 0 END) AS total_egresos,
+
+        -- Cuotas heredadas: cuota >= 02/X (pagos de compras de meses anteriores)
+        SUM(CASE WHEN NOT es_ingreso
+          AND descripcion ~* '\\[cuota (0[2-9]|[1-9]\\d)/(\\d+)\\]'
+          THEN monto ELSE 0 END) AS cuotas_heredadas,
+
+        -- Primera cuota: cuota 01/X (compra nueva con cuotas, iniciada este mes)
+        SUM(CASE WHEN NOT es_ingreso
+          AND descripcion ~* '\\[cuota 01/(\\d+)\\]'
+          THEN monto ELSE 0 END) AS cuotas_nuevas,
+
+        -- Compras al contado (sin cuotas, pago inmediato)
+        SUM(CASE WHEN NOT es_ingreso
+          AND descripcion NOT LIKE '%[cuota%'
+          THEN monto ELSE 0 END) AS gasto_contado,
+
+        -- Próximo mes (cuota 00/X, ya aparece pero se cobra después)
+        SUM(CASE WHEN NOT es_ingreso
+          AND descripcion ~* '\\[cuota 0+/(\\d+)\\]'
+          THEN monto ELSE 0 END) AS proximo_mes,
+
+        -- Total ingresos del mes
+        SUM(CASE WHEN es_ingreso THEN monto ELSE 0 END) AS total_ingresos,
+
+        COUNT(CASE WHEN NOT es_ingreso THEN 1 END) AS num_egresos,
+        COUNT(CASE WHEN es_ingreso THEN 1 END) AS num_ingresos
+
+      FROM transacciones
+      WHERE mes_id = $1
+    `, [id]);
+
+    // Detalle de cuotas heredadas (las más importantes)
+    const { rows: detalleCuotas } = await pool.query(`
+      SELECT descripcion, monto, fuente,
+        (regexp_match(descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[1] AS cuota_actual,
+        (regexp_match(descripcion, '\\[cuota (\\d+)/(\\d+)\\]', 'i'))[2] AS cuota_total
+      FROM transacciones
+      WHERE mes_id = $1
+        AND NOT es_ingreso
+        AND descripcion ~* '\\[cuota (0[2-9]|[1-9]\\d)/(\\d+)\\]'
+      ORDER BY monto DESC
+    `, [id]);
+
+    const r = rows[0];
+    res.json({
+      total_egresos:    parseInt(r.total_egresos) || 0,
+      cuotas_heredadas: parseInt(r.cuotas_heredadas) || 0,
+      cuotas_nuevas:    parseInt(r.cuotas_nuevas) || 0,
+      gasto_contado:    parseInt(r.gasto_contado) || 0,
+      proximo_mes:      parseInt(r.proximo_mes) || 0,
+      total_ingresos:   parseInt(r.total_ingresos) || 0,
+      gasto_nuevo:      (parseInt(r.gasto_contado) || 0) + (parseInt(r.cuotas_nuevas) || 0),
+      detalle_cuotas:   detalleCuotas.map(d => ({ ...d, monto: parseInt(d.monto) }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- CATEGORÍAS ----
 app.get('/api/categorias', async (req, res) => {
   try {

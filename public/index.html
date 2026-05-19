@@ -597,26 +597,50 @@ let mesesCache = null;
 
 async function initHistorial() {
   if (!mesesCache) mesesCache = await fetch('/api/meses').then(r => r.json());
+
+  // Cargar análisis de todos los meses en paralelo
+  const analisis = await Promise.all(
+    mesesCache.map(m => fetch(`/api/meses/${m.id}/analisis`).then(r => r.json()).catch(() => null))
+  );
+
   const grid = document.getElementById('month-grid');
   grid.innerHTML = '';
   mesesCache.forEach((m, i) => {
     const prev = mesesCache[i - 1];
+    const prevAn = i > 0 ? analisis[i - 1] : null;
+    const an = analisis[i];
+
+    const gastoNuevo = an?.gasto_nuevo || 0;
+    const cuotasHer = an?.cuotas_heredadas || 0;
+    const prevNuevo = prevAn?.gasto_nuevo || 0;
+
     const delta = prev ? ((m.gasto_real - prev.gasto_real) / prev.gasto_real * 100).toFixed(1) : null;
     const deltaClass = delta === null ? '' : (parseFloat(delta) > 5 ? 'up' : parseFloat(delta) < -5 ? 'dn' : 'nt');
     const deltaText = delta !== null ? (parseFloat(delta) > 0 ? '+' + delta : delta) + '%' : 'Base';
+
+    // Delta gasto nuevo vs mes anterior
+    const deltaNuevo = prevNuevo > 0 ? ((gastoNuevo - prevNuevo) / prevNuevo * 100).toFixed(1) : null;
+    const deltaNuevoClass = deltaNuevo === null ? '' : (parseFloat(deltaNuevo) > 5 ? 'up' : parseFloat(deltaNuevo) < -5 ? 'dn' : 'nt');
+
     const card = document.createElement('div');
     card.className = 'month-card';
     card.innerHTML = `
       <div class="mc-label">${m.label}</div>
       <div class="mc-val">${fmt(m.gasto_real)}</div>
       <div class="mc-delta ${deltaClass}">${deltaText}${m.mes_abierto ? ' · abierto' : ''}</div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1)">
+        <div style="font-size:10px;color:rgba(255,255,255,0.55);margin-bottom:3px">Gasto nuevo</div>
+        <div style="font-size:13px;font-weight:600;color:#fff">${fmt(gastoNuevo)}</div>
+        ${deltaNuevo !== null ? `<div style="font-size:10px" class="${deltaNuevoClass}">${parseFloat(deltaNuevo)>0?'+':''}${deltaNuevo}% vs ant.</div>` : ''}
+        ${cuotasHer > 0 ? `<div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:3px">Cuotas TC: ${fmt(cuotasHer)}</div>` : ''}
+      </div>
     `;
-    card.onclick = () => showMonthDetail(m.id, card);
+    card.onclick = () => showMonthDetail(m.id, card, an);
     grid.appendChild(card);
   });
 }
 
-async function showMonthDetail(mesId, cardEl) {
+async function showMonthDetail(mesId, cardEl, anPrecargado) {
   document.querySelectorAll('.month-card').forEach(c => c.classList.remove('selected'));
   cardEl.classList.add('selected');
   const wrap = document.getElementById('month-detail-wrap');
@@ -625,9 +649,68 @@ async function showMonthDetail(mesId, cardEl) {
   wrap.style.display = 'block';
   content.innerHTML = '<div class="loader"><div class="spinner"></div> Cargando detalle…</div>';
 
-  const m = await fetch(`/api/meses/${mesId}`).then(r => r.json());
+  const [m, an] = await Promise.all([
+    fetch(`/api/meses/${mesId}`).then(r => r.json()),
+    anPrecargado ? Promise.resolve(anPrecargado) : fetch(`/api/meses/${mesId}/analisis`).then(r => r.json())
+  ]);
+
   title.textContent = m.label + (m.mes_abierto ? ' · Mes en curso' : ' · Detalle completo');
 
+  // --- Panel de análisis gasto vs cuotas ---
+  const pctCuotas = an.total_egresos > 0 ? (an.cuotas_heredadas / an.total_egresos * 100).toFixed(0) : 0;
+  const pctNuevo  = an.total_egresos > 0 ? (an.gasto_nuevo / an.total_egresos * 100).toFixed(0) : 0;
+
+  const analisisHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+      <div style="background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Total del mes</div>
+        <div style="font-size:20px;font-weight:700;color:var(--text)">${fmt(an.total_egresos)}</div>
+        <div style="font-size:11px;color:var(--text3)">${an.num_egresos} movimientos</div>
+      </div>
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:#c2410c;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Gasto nuevo</div>
+        <div style="font-size:20px;font-weight:700;color:#ea580c">${fmt(an.gasto_nuevo)}</div>
+        <div style="font-size:11px;color:#c2410c">${pctNuevo}% del total · compras de este mes</div>
+      </div>
+      <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Cuotas TC heredadas</div>
+        <div style="font-size:20px;font-weight:700;color:#7c3aed">${fmt(an.cuotas_heredadas)}</div>
+        <div style="font-size:11px;color:#7c3aed">${pctCuotas}% del total · pagos de meses anteriores</div>
+      </div>
+      ${an.proximo_mes > 0 ? `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Se cobra el próx. mes</div>
+        <div style="font-size:20px;font-weight:700;color:#16a34a">${fmt(an.proximo_mes)}</div>
+        <div style="font-size:11px;color:#15803d">cuota 00/X · aún no cobrado</div>
+      </div>` : ''}
+      ${an.total_ingresos > 0 ? `
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Ingresos del mes</div>
+        <div style="font-size:20px;font-weight:700;color:#16a34a">${fmt(an.total_ingresos)}</div>
+      </div>` : ''}
+    </div>
+    ${an.detalle_cuotas?.length > 0 ? `
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🔁 Cuotas TC heredadas de meses anteriores</div>
+      <table class="tbl" style="font-size:12px">
+        <thead><tr><th>Descripción</th><th class="right">Cuota</th><th class="right">Monto</th></tr></thead>
+        <tbody>
+          ${an.detalle_cuotas.map(c => `
+            <tr>
+              <td>${c.descripcion.replace(/\s*\[cuota.*?\]/i,'').trim()}</td>
+              <td class="mono right" style="color:#7c3aed">${c.cuota_actual}/${c.cuota_total}</td>
+              <td class="mono right">${fmt(c.monto)}</td>
+            </tr>`).join('')}
+          <tr style="border-top:1px solid var(--border2)">
+            <td class="bold" colspan="2">Total cuotas heredadas</td>
+            <td class="mono right bold" style="color:#7c3aed">${fmt(an.cuotas_heredadas)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>` : ''}
+  `;
+
+  // --- Tabla por categorías ---
   const rows = m.desglose
     .filter(d => d.monto > 0)
     .map(d => `<tr>
@@ -644,6 +727,8 @@ async function showMonthDetail(mesId, cardEl) {
   content.innerHTML = `
     ${alertasHtml}
     ${m.notas ? `<div class="alert alert-yellow" style="margin-bottom:14px"><div class="alert-icon">📝</div><div class="alert-text">${m.notas}</div></div>` : ''}
+    ${analisisHtml}
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalle por categoría</div>
     <table class="tbl">
       <thead><tr><th>Categoría</th><th class="right">Monto</th><th class="right">% del total</th></tr></thead>
       <tbody>${rows}</tbody>
