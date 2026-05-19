@@ -218,6 +218,16 @@ select:focus, input:focus {
     <div class="kpi"><div class="kpi-label">Costos Financieros</div><div class="kpi-val" id="kpi-fin">—</div><div class="kpi-sub">TC + LC acumulado</div></div>
     <div class="kpi"><div class="kpi-label">Último Mes</div><div class="kpi-val" id="kpi-ultimo">—</div><div class="kpi-sub" id="kpi-ultimo-l">—</div></div>
   </div>
+  <!-- KPIs del mes en curso -->
+  <div id="kpis-mes-actual" style="display:none">
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin:20px 0 10px" id="kpis-mes-label">Mes en curso</div>
+    <div class="kpis">
+      <div class="kpi" style="border-color:#f97316"><div class="kpi-label">Gasto nuevo</div><div class="kpi-val" id="kpi-gasto-nuevo">—</div><div class="kpi-sub" id="kpi-gasto-nuevo-sub">compras de este mes</div></div>
+      <div class="kpi" style="border-color:#7c3aed"><div class="kpi-label">Cuotas TC heredadas</div><div class="kpi-val" id="kpi-cuotas-her">—</div><div class="kpi-sub">pagos de meses anteriores</div></div>
+      <div class="kpi" style="border-color:#b45309"><div class="kpi-label">Próximo ciclo</div><div class="kpi-val" id="kpi-prox-ciclo">—</div><div class="kpi-sub">cuotas que inician el mes siguiente</div></div>
+      <div class="kpi" style="border-color:#dc2626"><div class="kpi-label">💳 TC Nacional a pagar</div><div class="kpi-val up" id="kpi-tc-pagar">—</div><div class="kpi-sub" id="kpi-tc-pagar-sub">saldo neto del mes</div></div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">Evolución Gasto Real Mensual</div>
     <div class="chart-wrap"><canvas id="chart-evolucion"></canvas></div>
@@ -524,6 +534,27 @@ async function initResumen() {
     fetch('/api/meses').then(r => r.json())
   ]);
 
+  // KPIs del mes en curso (solo si hay mes abierto con transacciones)
+  const mesAbierto = meses.find(m => m.mes_abierto && m.tiene_transacciones);
+  if (mesAbierto) {
+    const [an, tc] = await Promise.all([
+      fetch(`/api/meses/${mesAbierto.id}/analisis`).then(r => r.json()),
+      fetch(`/api/resumen-tc?mes_id=${mesAbierto.id}`).then(r => r.json())
+    ]);
+    const cargosTC   = tc.filter(t => !t.es_ingreso && !t.proximo_mes).reduce((s, t) => s + t.monto, 0);
+    const pagosTC    = tc.filter(t => t.es_ingreso).reduce((s, t) => s + t.monto, 0);
+    const saldoTC    = cargosTC - pagosTC;
+
+    document.getElementById('kpis-mes-actual').style.display = 'block';
+    document.getElementById('kpis-mes-label').textContent = `${mesAbierto.label} — mes en curso`;
+    document.getElementById('kpi-gasto-nuevo').textContent  = fmt(an.gasto_nuevo);
+    document.getElementById('kpi-gasto-nuevo-sub').textContent = `${((an.gasto_nuevo/(an.total_egresos||1))*100).toFixed(0)}% del total`;
+    document.getElementById('kpi-cuotas-her').textContent   = fmt(an.cuotas_heredadas);
+    document.getElementById('kpi-prox-ciclo').textContent   = fmt(mesAbierto.proximo_ciclo);
+    document.getElementById('kpi-tc-pagar').textContent     = fmt(saldoTC);
+    document.getElementById('kpi-tc-pagar-sub').textContent = `cargos ${fmt(cargosTC)} − pagos ${fmt(pagosTC)}`;
+  }
+
   document.getElementById('resumen-sub').textContent =
     `Enero 2025 → Mayo 2026 · ${resumen.num_meses} meses de historial`;
   document.getElementById('kpi-total').textContent = fmt(resumen.total);
@@ -628,12 +659,13 @@ async function initHistorial() {
       <div class="mc-label">${m.label}</div>
       <div class="mc-val">${fmt(m.gasto_real)}</div>
       <div class="mc-delta ${deltaClass}">${deltaText}${m.mes_abierto ? ' · abierto' : ''}</div>
+      ${m.tiene_transacciones ? `
       <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1)">
         <div style="font-size:10px;color:rgba(255,255,255,0.55);margin-bottom:3px">Gasto nuevo</div>
         <div style="font-size:13px;font-weight:600;color:#fff">${fmt(gastoNuevo)}</div>
         ${deltaNuevo !== null ? `<div style="font-size:10px" class="${deltaNuevoClass}">${parseFloat(deltaNuevo)>0?'+':''}${deltaNuevo}% vs ant.</div>` : ''}
         ${cuotasHer > 0 ? `<div style="font-size:10px;color:rgba(255,255,255,0.45);margin-top:3px">Cuotas TC: ${fmt(cuotasHer)}</div>` : ''}
-      </div>
+      </div>` : `<div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:6px">datos históricos</div>`}
     `;
     card.onclick = () => showMonthDetail(m.id, card, an);
     grid.appendChild(card);
@@ -1077,9 +1109,13 @@ async function cargarTransacciones() {
     .map(c => `<option value="${c.key}">${c.label}</option>`).join('');
 
   tbody.innerHTML = txns.map(t => `
-    <tr id="txrow-${t.id}">
-      <td class="mono" style="white-space:nowrap;color:var(--text3)">${t.fecha?.slice(0,10) || '—'}</td>
-      <td style="max-width:220px;color:var(--text);font-size:12px">${t.descripcion}${t.notas ? `<br><span style="font-size:10px;color:var(--text3)">${t.notas}</span>` : ''}</td>
+    <tr id="txrow-${t.id}" ${t.es_proximo_ciclo ? 'style="opacity:0.7;background:#fffbeb"' : ''}>
+      <td class="mono" style="white-space:nowrap;color:var(--text3)">${t.fecha ? new Date(t.fecha).toISOString().slice(0,10) : '—'}</td>
+      <td style="max-width:220px;color:var(--text);font-size:12px">
+        ${t.descripcion}
+        ${t.es_proximo_ciclo ? `<br><span style="font-size:10px;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:4px;font-weight:600">⏭ próximo ciclo</span>` : ''}
+        ${t.notas ? `<br><span style="font-size:10px;color:var(--text3)">${t.notas}</span>` : ''}
+      </td>
       <td style="min-width:180px">
         <select onchange="cambiarCategoria(${t.id}, this.value)"
           style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border2);font-size:12px;color:var(--text);background:var(--surface);font-family:var(--sans)">
@@ -1090,7 +1126,9 @@ async function cargarTransacciones() {
         </select>
       </td>
       <td><span class="badge badge-blue">${MEDIOS[t.medio_pago] || t.medio_pago}</span></td>
-      <td class="mono right" style="color:${t.es_ingreso ? 'var(--green)' : 'var(--red)'}">${t.es_ingreso ? '+' : ''}${fmt(t.monto)}</td>
+      <td class="mono right" style="color:${t.es_ingreso ? 'var(--green)' : t.es_proximo_ciclo ? '#b45309' : 'var(--red)'}">
+        ${t.es_ingreso ? '+' : ''}${fmt(t.monto)}
+      </td>
       <td class="right">
         <button onclick="eliminarTransaccion(${t.id})" style="background:var(--red-bg);border:1px solid #fca5a5;color:var(--red);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:var(--sans);font-weight:500">✕</button>
       </td>

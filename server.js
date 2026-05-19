@@ -121,9 +121,27 @@ app.get('/api/resumen', async (req, res) => {
 // ---- TODOS LOS MESES (para gráficas) ----
 app.get('/api/meses', async (req, res) => {
   try {
-    const { rows: meses } = await pool.query('SELECT * FROM meses ORDER BY id');
+    const { rows: meses }  = await pool.query('SELECT * FROM meses ORDER BY id');
     const { rows: costos } = await pool.query('SELECT * FROM costos_financieros');
     const { rows: alertas } = await pool.query('SELECT * FROM alertas_mes ORDER BY mes_id');
+
+    // Calcular gasto real DESDE TRANSACCIONES (excluye cuota 00/X y pagos/ingresos)
+    const { rows: txnResumen } = await pool.query(`
+      SELECT mes_id,
+        SUM(CASE WHEN NOT es_ingreso AND descripcion NOT LIKE '%[cuota 00/%' THEN monto ELSE 0 END) AS gasto_txn,
+        SUM(CASE WHEN NOT es_ingreso AND descripcion LIKE '%[cuota 00/%' THEN monto ELSE 0 END)     AS proximo_ciclo,
+        SUM(CASE WHEN es_ingreso THEN monto ELSE 0 END)                                             AS ingresos_txn,
+        COUNT(CASE WHEN NOT es_ingreso THEN 1 END)                                                  AS num_movimientos
+      FROM transacciones GROUP BY mes_id
+    `);
+    const txnMap = {};
+    txnResumen.forEach(t => txnMap[t.mes_id] = {
+      gasto_txn:      parseInt(t.gasto_txn) || 0,
+      proximo_ciclo:  parseInt(t.proximo_ciclo) || 0,
+      ingresos_txn:   parseInt(t.ingresos_txn) || 0,
+      num_movimientos: parseInt(t.num_movimientos) || 0,
+      tiene_datos: true
+    });
 
     const costosMap = {};
     costos.forEach(c => costosMap[c.mes_id] = { tc: parseInt(c.tc), lc: parseInt(c.lc), total: parseInt(c.total) });
@@ -134,16 +152,27 @@ app.get('/api/meses', async (req, res) => {
       alertasMap[a.mes_id].push(a.texto);
     });
 
-    const result = meses.map(m => ({
-      id: m.id,
-      label: m.label,
-      gasto_real: parseInt(m.gasto_real),
-      mes_abierto: m.mes_abierto,
-      ingresos_extras: parseInt(m.ingresos_extras),
-      notas: m.notas,
-      costos_financieros: costosMap[m.id] || { tc: 0, lc: 0, total: 0 },
-      alertas: alertasMap[m.id] || []
-    }));
+    const result = meses.map(m => {
+      const txn = txnMap[m.id] || {};
+      // Para meses con transacciones reales, usar gasto calculado; si no, usar seed
+      const gasto_real = txn.gasto_txn || parseInt(m.gasto_real);
+      return {
+        id: m.id,
+        label: m.label,
+        gasto_real,
+        gasto_seed: parseInt(m.gasto_real),    // original del seed
+        gasto_txn:  txn.gasto_txn || null,      // calculado de transacciones
+        proximo_ciclo: txn.proximo_ciclo || 0,
+        ingresos_txn: txn.ingresos_txn || 0,
+        num_movimientos: txn.num_movimientos || 0,
+        tiene_transacciones: !!txn.tiene_datos,
+        mes_abierto: m.mes_abierto,
+        ingresos_extras: parseInt(m.ingresos_extras),
+        notas: m.notas,
+        costos_financieros: costosMap[m.id] || { tc: 0, lc: 0, total: 0 },
+        alertas: alertasMap[m.id] || []
+      };
+    });
 
     res.json(result);
   } catch (err) {
@@ -404,7 +433,9 @@ app.get('/api/transacciones', async (req, res) => {
   try {
     const { mes_id, categoria_key } = req.query;
     let query = `
-      SELECT t.*, c.label AS categoria_label, c.color AS categoria_color
+      SELECT t.*,
+        c.label AS categoria_label, c.color AS categoria_color,
+        (t.descripcion LIKE '%[cuota 00/%') AS es_proximo_ciclo
       FROM transacciones t
       LEFT JOIN categorias c ON t.categoria_key = c.key
       WHERE 1=1
@@ -477,8 +508,10 @@ app.get('/api/transacciones/por-categoria', async (req, res) => {
         t.categoria_key,
         c.label, c.color,
         COUNT(*) AS num_transacciones,
-        SUM(CASE WHEN NOT t.es_ingreso THEN t.monto ELSE 0 END) AS egresos,
-        SUM(CASE WHEN t.es_ingreso THEN t.monto ELSE 0 END) AS ingresos
+        -- Excluir cuota 00/X de egresos (se cobran el próximo ciclo, no este mes)
+        SUM(CASE WHEN NOT t.es_ingreso AND t.descripcion NOT LIKE '%[cuota 00/%' THEN t.monto ELSE 0 END) AS egresos,
+        SUM(CASE WHEN t.es_ingreso THEN t.monto ELSE 0 END) AS ingresos,
+        SUM(CASE WHEN NOT t.es_ingreso AND t.descripcion LIKE '%[cuota 00/%' THEN t.monto ELSE 0 END) AS proximo_ciclo
       FROM transacciones t
       LEFT JOIN categorias c ON t.categoria_key = c.key
     `;
@@ -488,8 +521,9 @@ app.get('/api/transacciones/por-categoria', async (req, res) => {
     const { rows } = await pool.query(query, params);
     res.json(rows.map(r => ({
       ...r,
-      egresos: parseInt(r.egresos) || 0,
-      ingresos: parseInt(r.ingresos) || 0,
+      egresos:       parseInt(r.egresos) || 0,
+      ingresos:      parseInt(r.ingresos) || 0,
+      proximo_ciclo: parseInt(r.proximo_ciclo) || 0,
       num_transacciones: parseInt(r.num_transacciones)
     })));
   } catch (err) {
